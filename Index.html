@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FD 37 Osnabrück – Datenbank</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+:root{
+  --bg:#f5f6f4; --paper:#ffffff; --ink:#1c2128; --ink-2:#4b545e; --ink-3:#8a939c;
+  --line:#dcdfe2; --line-2:#eceef0;
+  --signal:#c8102e; --signal-ink:#fff;
+  --ok:#2f7d4f; --warn:#b26a00; --info:#2b5f8f;
+  --row:#fafbfa;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  --r:6px; --side:220px;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme=light]){
+    --bg:#15181c; --paper:#1d2126; --ink:#e6e9ec; --ink-2:#aeb6be; --ink-3:#727b84;
+    --line:#2e343b; --line-2:#262b31; --row:#1a1e23; --signal:#e0263f;
+  }
+}
+:root[data-theme=dark]{
+  --bg:#15181c; --paper:#1d2126; --ink:#e6e9ec; --ink-2:#aeb6be; --ink-3:#727b84;
+  --line:#2e343b; --line-2:#262b31; --row:#1a1e23; --signal:#e0263f;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 var(--sans)}
+button,input,select,textarea{font:inherit;color:inherit}
+a{color:var(--info)}
+.hidden{display:none!important}
+
+/* ---- Login ---- */
+#login{min-height:100vh;display:grid;place-items:center;padding:24px}
+.card{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);padding:28px;width:min(400px,100%)}
+.card h1{margin:0 0 4px;font-size:20px;font-weight:600}
+.card p{margin:0 0 20px;color:var(--ink-2)}
+label{display:block;font-size:12px;color:var(--ink-2);margin:12px 0 4px}
+input,select,textarea{width:100%;background:var(--paper);border:1px solid var(--line);border-radius:4px;padding:8px 10px}
+input:focus,select:focus,textarea:focus,button:focus-visible{outline:2px solid var(--info);outline-offset:1px}
+textarea{min-height:70px;resize:vertical}
+.btn{border:1px solid var(--line);background:var(--paper);border-radius:4px;padding:8px 14px;cursor:pointer}
+.btn:hover{border-color:var(--ink-3)}
+.btn.primary{background:var(--signal);border-color:var(--signal);color:var(--signal-ink);font-weight:500}
+.btn.primary:hover{filter:brightness(.92)}
+.btn.small{padding:4px 10px;font-size:13px}
+.actions{display:flex;gap:8px;margin-top:18px;align-items:center;flex-wrap:wrap}
+.msg{margin-top:12px;font-size:13px;color:var(--warn);min-height:1.4em}
+
+/* ---- App shell ---- */
+#app{display:grid;grid-template-columns:var(--side) 1fr;min-height:100vh}
+aside{background:var(--paper);border-right:1px solid var(--line);padding:18px 14px;position:sticky;top:0;height:100vh;display:flex;flex-direction:column}
+.brand{display:flex;align-items:center;gap:10px;padding:0 6px 16px;border-bottom:1px solid var(--line-2);margin-bottom:10px}
+.brand i{display:block;width:10px;height:26px;background:var(--signal);border-radius:2px}
+.brand b{display:block;font-weight:600}
+.brand small{display:block;color:var(--ink-3);font-size:12px}
+nav button{display:block;width:100%;text-align:left;border:0;background:none;padding:8px 10px;border-radius:4px;cursor:pointer;color:var(--ink-2)}
+nav button:hover{background:var(--line-2)}
+nav button.on{background:var(--line-2);color:var(--ink);font-weight:500;box-shadow:inset 3px 0 0 var(--signal)}
+.who{margin-top:auto;font-size:12px;color:var(--ink-3);padding:10px 6px 0;border-top:1px solid var(--line-2);word-break:break-all}
+main{padding:22px 26px;min-width:0}
+header.bar{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+header.bar h2{margin:0;font-size:18px;font-weight:600}
+header.bar .sub{color:var(--ink-3);font-size:13px}
+
+/* ---- KPIs ---- */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;margin-bottom:22px}
+.kpi{background:var(--paper);padding:14px 16px}
+.kpi b{display:block;font-size:26px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.1}
+.kpi span{color:var(--ink-2);font-size:13px}
+.kpi small{display:block;color:var(--ink-3);font-size:12px;margin-top:2px}
+
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media (max-width:900px){.grid2{grid-template-columns:1fr}}
+.panel{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px}
+.panel h3{margin:0 0 10px;font-size:14px;font-weight:600}
+.bars{display:grid;gap:7px}
+.bar{display:grid;grid-template-columns:140px 1fr 60px;align-items:center;gap:10px;font-size:13px}
+.bar .track{height:10px;background:var(--line-2);border-radius:2px;overflow:hidden;display:flex}
+.bar .fill{background:var(--ink-2);height:100%}
+.bar .fill.ph{background:var(--line);}
+.bar .n{text-align:right;font-variant-numeric:tabular-nums;color:var(--ink-2)}
+.legend{font-size:12px;color:var(--ink-3);margin-top:8px}
+
+/* ---- Tables ---- */
+.tools{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:end}
+.tools label{margin:0 0 4px}
+.tools > div{min-width:150px;flex:1 1 150px}
+.tools > div.grow{flex:2 1 220px}
+.tools .chk{display:flex;align-items:center;gap:6px;min-width:auto;flex:0 0 auto;padding-bottom:9px}
+.tools .chk input{width:auto}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r);background:var(--paper)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line-2);vertical-align:top;white-space:nowrap}
+th{font-weight:500;color:var(--ink-2);background:var(--row);position:sticky;top:0}
+tbody tr:hover{background:var(--row)}
+tbody tr.click{cursor:pointer}
+td.wrap,th.wrap{white-space:normal;min-width:180px}
+.mono{font-family:var(--mono);font-size:12px}
+.muted{color:var(--ink-3)}
+.tag{display:inline-block;border:1px solid var(--line);border-radius:3px;padding:0 6px;font-size:12px;line-height:18px;color:var(--ink-2)}
+.tag.ph{border-style:dashed}
+.tag.ok{color:var(--ok);border-color:currentColor}
+.tag.warn{color:var(--warn);border-color:currentColor}
+.count{color:var(--ink-3);font-size:12px;margin:8px 2px}
+.tree .abt{margin-bottom:14px}
+.tree .abt > .h{display:flex;gap:10px;align-items:baseline;padding:8px 0 6px;border-bottom:1px solid var(--line)}
+.tree .abt > .h b{font-weight:600}
+.tree .abt > .h .kz{font-family:var(--mono);color:var(--signal);font-size:13px}
+.tree ul{list-style:none;margin:0;padding:0}
+.tree li{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:6px 0 6px 18px;border-bottom:1px solid var(--line-2);font-size:13px}
+.tree li span:last-child{color:var(--ink-2)}
+@media (max-width:640px){.tree li{grid-template-columns:1fr}}
+
+/* ---- Karte ---- */
+#map{height:min(70vh,640px);min-height:360px;border:1px solid var(--line);border-radius:var(--r);background:var(--line-2)}
+.leaflet-container{font:inherit}
+.pin{width:14px;height:14px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.35)}
+.pin.bf_wache{background:var(--signal)} .pin.ortsfeuerwehr{background:#1f4e99} .pin.werkfeuerwehr{background:#6b6b6b}
+.pin.leitstelle{background:#b26a00} .pin.schule{background:#2f7d4f} .pin.rettungswache{background:#c95c00} .pin.kats_lager,.pin.werkstatt,.pin.sonstiges{background:#555}
+.leaflet-popup-content{font-size:13px;margin:10px 12px}
+.maplegend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--ink-2);margin:8px 2px}
+.maplegend span{display:inline-flex;align-items:center;gap:5px}
+.maplegend .pin{width:10px;height:10px;border-width:1px}
+.geo td{white-space:normal}
+/* ---- Wetter ---- */
+.now{display:grid;grid-template-columns:auto 1fr;gap:6px 22px;align-items:center}
+.now .t{font-size:52px;font-weight:600;line-height:1;font-variant-numeric:tabular-nums}
+.now .desc{font-size:16px}
+.now dl{display:grid;grid-template-columns:auto auto;gap:4px 12px;margin:0;font-size:13px}
+.now dt{color:var(--ink-3)} .now dd{margin:0;font-variant-numeric:tabular-nums}
+.hours{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(64px,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r);overflow-x:auto;margin-top:14px}
+.hours div{background:var(--paper);padding:8px 6px;text-align:center;font-size:12px}
+.hours b{display:block;font-size:15px;font-weight:600}
+.hours small{display:block;color:var(--ink-3)}
+.days{display:grid;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.days div{background:var(--paper);display:grid;grid-template-columns:110px 1fr 90px 90px;gap:10px;padding:8px 12px;font-size:13px;align-items:center}
+.days div span:last-child,.days div span:nth-child(3){text-align:right;font-variant-numeric:tabular-nums}
+.warnbox{border-left:3px solid var(--signal);padding:8px 12px;background:var(--row);font-size:13px;margin-bottom:12px}
+
+/* ---- Drawer ---- */
+#drawer{position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;justify-content:flex-end;z-index:20}
+#drawer .sheet{background:var(--paper);width:min(520px,100%);height:100%;overflow:auto;padding:22px 24px;border-left:1px solid var(--line)}
+#drawer h3{margin:0 0 2px;font-size:16px;font-weight:600}
+#drawer .sub{color:var(--ink-3);font-size:12px;font-family:var(--mono);margin-bottom:10px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
+@media (max-width:480px){.two{grid-template-columns:1fr}}
+
+/* ---- Toast ---- */
+#toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:9px 14px;border-radius:4px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .15s;z-index:30}
+#toast.show{opacity:1}
+
+/* ---- Mobile ---- */
+@media (max-width:760px){
+  #app{grid-template-columns:1fr}
+  aside{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line);padding:12px}
+  nav{display:flex;gap:4px;overflow-x:auto}
+  nav button{white-space:nowrap;width:auto}
+  nav button.on{box-shadow:inset 0 -3px 0 var(--signal)}
+  .who{display:none}
+  .brand{border:0;margin:0 0 8px;padding-bottom:0}
+  main{padding:14px}
+  .bar{grid-template-columns:100px 1fr 50px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<!-- ================= LOGIN ================= -->
+<section id="login">
+  <div class="card">
+    <h1>FD 37 Osnabrück – Datenbank</h1>
+    <p>Anmelden mit dem Supabase-Konto dieses Projekts.</p>
+    <label for="email">E-Mail</label>
+    <input id="email" type="email" autocomplete="username">
+    <label for="pw">Passwort</label>
+    <input id="pw" type="password" autocomplete="current-password">
+    <div class="actions">
+      <button class="btn primary" id="btnLogin">Anmelden</button>
+      <button class="btn" id="btnSignup">Konto anlegen</button>
+    </div>
+    <div class="msg" id="loginMsg"></div>
+  </div>
+</section>
+
+<!-- ================= APP ================= -->
+<section id="app" class="hidden">
+  <aside>
+    <div class="brand"><i></i><div><b>FD 37 Osnabrück</b><small>Datenbank · Einsatzvorbereitung</small></div></div>
+    <nav>
+      <button data-view="uebersicht" class="on">Übersicht</button>
+      <button data-view="orga">Organisation</button>
+      <button data-view="standorte">Standorte</button>
+      <button data-view="karte">Karte</button>
+      <button data-view="wetter">Wetter</button>
+      <button data-view="fahrzeuge">Fahrzeuge</button>
+      <button data-view="konzept">Fahrzeugkonzept</button>
+      <button data-view="projekte">Projekte &amp; Aufgaben</button>
+    </nav>
+    <div class="who"><span id="whoMail"></span><br><button class="btn small" id="btnLogout" style="margin-top:8px">Abmelden</button></div>
+  </aside>
+
+  <main>
+    <header class="bar">
+      <h2 id="viewTitle">Übersicht</h2>
+      <span class="sub" id="viewSub"></span>
+    </header>
+    <div id="content"></div>
+  </main>
+</section>
+
+<div id="drawer" class="hidden"></div>
+<div id="toast"></div>
+
+<script>
+/* ==========================================================
+   Konfiguration – Supabase-Projekt ffbcrsclhfxsrusdsaxp
+   Der publishable Key ist für den Browser bestimmt; Zugriff
+   regeln die RLS-Policies (nur angemeldete Nutzer).
+   ========================================================== */
+const SUPABASE_URL = "https://ffbcrsclhfxsrusdsaxp.supabase.co";
+const SUPABASE_KEY = "sb_publishable_RnFP3KmeN2cB7Zb31ZbzPw_BzwmsQcW";
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const nz = v => (v === null || v === undefined || v === "") ? '<span class="muted">–</span>' : esc(v);
+let toastT;
+function toast(t){ const el=$("#toast"); el.textContent=t; el.classList.add("show"); clearTimeout(toastT); toastT=setTimeout(()=>el.classList.remove("show"),2600); }
+
+/* ---------------- Auth ---------------- */
+$("#btnLogin").onclick = async () => {
+  $("#loginMsg").textContent = "";
+  const { error } = await sb.auth.signInWithPassword({ email: $("#email").value.trim(), password: $("#pw").value });
+  if (error) $("#loginMsg").textContent = "Anmeldung fehlgeschlagen: " + error.message;
+};
+$("#btnSignup").onclick = async () => {
+  $("#loginMsg").textContent = "";
+  const { data, error } = await sb.auth.signUp({ email: $("#email").value.trim(), password: $("#pw").value });
+  if (error) { $("#loginMsg").textContent = "Konto konnte nicht angelegt werden: " + error.message; return; }
+  $("#loginMsg").textContent = data.session ? "Konto angelegt, du bist angemeldet." : "Konto angelegt. Bestätigungsmail prüfen, dann anmelden.";
+};
+$("#btnLogout").onclick = () => sb.auth.signOut();
+
+sb.auth.onAuthStateChange((_e, session) => {
+  if (session) { $("#login").classList.add("hidden"); $("#app").classList.remove("hidden"); $("#whoMail").textContent = session.user.email; loadAll(); }
+  else { $("#app").classList.add("hidden"); $("#login").classList.remove("hidden"); }
+});
+
+/* ---------------- Daten ---------------- */
+const D = {};   // Cache aller geladenen Tabellen
+async function q(table, select = "*", order) {
+  let r = sb.from(table).select(select);
+  if (order) r = r.order(order);
+  const { data, error } = await r.limit(5000);
+  if (error) { toast(`Fehler beim Laden von ${table}: ${error.message}`); console.error(error); return []; }
+  return data;
+}
+async function loadAll() {
+  $("#viewSub").textContent = "lädt …";
+  const [abt, uabt, kon, sto, sf, kat, fz, pro, auf, dinT] = await Promise.all([
+    q("abteilung","*, kontakt(vorname,nachname)","kurzbezeichnung"),
+    q("unterabteilung","*, kontakt(vorname,nachname)","name"),
+    q("kontakt","*","nachname"),
+    q("standort","id,typ,name,kurzbezeichnung,adresse,stadtteil,traeger,abteilung_id,lat,lon,quelle,anmerkung","name"),
+    q("standort_sonderfunktion","*"),
+    q("fahrzeugkategorie","*","zeile"),
+    q("fahrzeug","*, fahrzeugkategorie(zeile,bezeichnung,kurzbezeichnung,tabelle), standort(name), abteilung(kurzbezeichnung), din_fahrzeugtyp(kurzbezeichnung)","bezeichnung"),
+    q("projekt","*","titel"),
+    q("aufgabe","*, projekt(titel)","faellig_am"),
+    q("din_fahrzeugtyp","id,kurzbezeichnung,norm","kurzbezeichnung"),
+  ]);
+  Object.assign(D, { abt, uabt, kon, sto, sf, kat, fz, pro, auf, dinT });
+  D.abtById = Object.fromEntries(abt.map(a => [a.id, a]));
+  D.stoById = Object.fromEntries(sto.map(s => [s.id, s]));
+  render();
+}
+
+/* ---------------- Views ---------------- */
+let view = "uebersicht";
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach(x => x.classList.remove("on")); b.classList.add("on");
+  view = b.dataset.view; render();
+});
+const titles = { uebersicht:"Übersicht", orga:"Organisation", standorte:"Standorte", karte:"Karte", wetter:"Wetter Osnabrück", fahrzeuge:"Fahrzeuge", konzept:"Fahrzeugkonzept", projekte:"Projekte & Aufgaben" };
+function render() {
+  if (!D.fz) return;
+  $("#viewTitle").textContent = titles[view];
+  $("#viewSub").textContent = "Stand " + new Date().toLocaleString("de-DE",{dateStyle:"medium",timeStyle:"short"});
+  ({uebersicht:vUebersicht, orga:vOrga, standorte:vStandorte, karte:vKarte, wetter:vWetter, fahrzeuge:vFahrzeuge, konzept:vKonzept, projekte:vProjekte})[view]();
+}
+const personName = k => k ? [k.vorname, k.nachname].filter(Boolean).join(" ") : null;
+const typLabel = { bf_wache:"BF-Wache", ortsfeuerwehr:"Ortsfeuerwehr", werkfeuerwehr:"Werkfeuerwehr", leitstelle:"Leitstelle", schule:"Schule", rettungswache:"Rettungswache", kats_lager:"KatS-Lager", werkstatt:"Werkstatt", sonstiges:"Sonstiges" };
+
+/* --- Übersicht --- */
+function vUebersicht() {
+  const fz = D.fz, ph = fz.filter(f => f.platzhalter).length;
+  const offen = D.auf.filter(a => !["erledigt","verworfen"].includes(a.status)).length;
+  const faellig = D.auf.filter(a => a.faellig_am && a.faellig_am < new Date().toISOString().slice(0,10) && !["erledigt","verworfen"].includes(a.status)).length;
+  const kpi = (n, l, s="") => `<div class="kpi"><b>${n}</b><span>${l}</span>${s?`<small>${s}</small>`:""}</div>`;
+  // Fahrzeuge je Abteilung
+  const byAbt = {};
+  fz.forEach(f => { const k = f.abteilung?.kurzbezeichnung || "ohne"; byAbt[k] ??= {n:0,ph:0}; byAbt[k].n++; if (f.platzhalter) byAbt[k].ph++; });
+  const max = Math.max(...Object.values(byAbt).map(x => x.n), 1);
+  const bars = Object.entries(byAbt).sort().map(([k,v]) => `<div class="bar"><span>${esc(k)}</span><div class="track"><div class="fill" style="width:${(v.n-v.ph)/max*100}%"></div><div class="fill ph" style="width:${v.ph/max*100}%"></div></div><span class="n">${v.n-v.ph} / ${v.n}</span></div>`).join("");
+  // Standorte je Typ
+  const byTyp = {}; D.sto.forEach(s => byTyp[s.typ] = (byTyp[s.typ]||0)+1);
+  const maxT = Math.max(...Object.values(byTyp), 1);
+  const barsT = Object.entries(byTyp).sort((a,b)=>b[1]-a[1]).map(([k,v]) => `<div class="bar"><span>${esc(typLabel[k]||k)}</span><div class="track"><div class="fill" style="width:${v/maxT*100}%"></div></div><span class="n">${v}</span></div>`).join("");
+  $("#content").innerHTML = `
+    <div class="kpis">
+      ${kpi(D.abt.length, "Abteilungen", D.uabt.length + " Unterabteilungen")}
+      ${kpi(D.sto.length, "Standorte", D.sf.length + " Sonderfunktionen")}
+      ${kpi(fz.length, "Fahrzeuge im Bestand", `${fz.length-ph} mit Einzeldaten, ${ph} Platzhalter`)}
+      ${kpi(D.kon.length, "Kontakte", "Leitungspersonen")}
+      ${kpi(D.pro.filter(p=>["geplant","laufend"].includes(p.status)).length, "Projekte aktiv", D.pro.length + " gesamt")}
+      ${kpi(offen, "Aufgaben offen", faellig ? faellig + " überfällig" : "keine überfällig")}
+    </div>
+    <div class="grid2">
+      <div class="panel"><h3>Fahrzeuge je Abteilung</h3><div class="bars">${bars}</div><div class="legend">dunkel = mit Einzeldaten, hell = Platzhalter aus dem Fahrzeugkonzept</div></div>
+      <div class="panel"><h3>Standorte je Typ</h3><div class="bars">${barsT}</div></div>
+    </div>
+    <div class="panel" style="margin-top:18px">
+      <h3>Kontakt suchen</h3>
+      <input id="konS" placeholder="Name, Funktion, Telefon, E-Mail, Ort …" autocomplete="off">
+      <div id="konRes"></div>
+    </div>`;
+  const konRes = $("#konRes"), konS = $("#konS");
+  const renderKon = () => {
+    const s = konS.value.trim().toLowerCase();
+    if (!s) { konRes.innerHTML = `<div class="count">${D.kon.length} Kontakte – Suchbegriff eingeben</div>`; return; }
+    const hits = D.kon.filter(k => [k.vorname, k.nachname, k.funktionsbezeichnung, k.telefon, k.email, k.ort, k.strasse].join(" ").toLowerCase().includes(s));
+    konRes.innerHTML = hits.length ? `<div class="tablewrap" style="margin-top:10px"><table><thead><tr><th>Name</th><th class="wrap">Funktion</th><th>Telefon</th><th>E-Mail</th><th></th></tr></thead><tbody>
+      ${hits.map(k => `<tr><td>${esc(personName(k))}</td><td class="wrap">${nz(k.funktionsbezeichnung)}</td><td class="mono">${k.telefon?`<a href="tel:${esc(k.telefon.replace(/[^+\d]/g,""))}">${esc(k.telefon)}</a>`:nz(null)}</td><td>${k.email?`<a href="mailto:${esc(k.email)}">${esc(k.email)}</a>`:nz(null)}</td><td><button class="btn small" onclick="editKontakt('${k.id}')">Bearbeiten</button></td></tr>`).join("")}
+      </tbody></table></div><div class="count">${hits.length} Treffer</div>` : `<div class="count">Kein Kontakt passt zu „${esc(konS.value)}“.</div>`;
+  };
+  konS.oninput = renderKon; renderKon();
+}
+
+/* --- Organisation --- */
+function vOrga() {
+  const html = D.abt.map(a => {
+    const subs = D.uabt.filter(u => u.abteilung_id === a.id).map(u => `<li><span>${esc(u.name)}</span><span>${nz(personName(u.kontakt))}</span></li>`).join("");
+    return `<div class="abt"><div class="h"><span class="kz">${esc(a.kurzbezeichnung)}</span><b>${esc(a.name)}</b><span class="muted">Leitung: ${nz(personName(a.kontakt))}</span></div>
+      ${subs ? `<ul>${subs}</ul>` : `<div class="muted" style="padding:6px 18px">keine Unterabteilungen – gliedert sich über Standorte</div>`}</div>`;
+  }).join("");
+  $("#content").innerHTML = `<div class="tree">${html}</div>
+    <h3 style="margin:22px 0 8px;font-size:14px">Kontakte (${D.kon.length})</h3>
+    <div class="tablewrap"><table><thead><tr><th>Name</th><th class="wrap">Funktion</th><th>Telefon</th><th>E-Mail</th><th class="wrap">Anschrift</th><th></th></tr></thead><tbody>
+      ${D.kon.map(k => `<tr><td>${esc(personName(k))}</td><td class="wrap">${nz(k.funktionsbezeichnung)}</td><td class="mono">${k.telefon?`<a href="tel:${esc(k.telefon.replace(/[^+\d]/g,""))}">${esc(k.telefon)}</a>`:nz(null)}</td><td>${k.email?`<a href="mailto:${esc(k.email)}">${esc(k.email)}</a>`:nz(null)}</td><td class="wrap">${nz([k.strasse,[k.plz,k.ort].filter(Boolean).join(" ")].filter(Boolean).join(", ")||null)}</td><td><button class="btn small" onclick="editKontakt('${k.id}')">Bearbeiten</button></td></tr>`).join("")}
+    </tbody></table></div>
+    <div class="actions"><button class="btn" onclick="editKontakt(null)">Kontakt anlegen</button></div>`;
+}
+
+/* --- Standorte --- */
+function vStandorte() {
+  const rows = D.sto.map(s => {
+    const sfs = D.sf.filter(x => x.standort_id === s.id).map(x => `<span class="tag">${esc(x.bezeichnung)}</span>`).join(" ");
+    return `<tr class="click" onclick="editStandort('${s.id}')"><td><span class="tag">${esc(typLabel[s.typ]||s.typ)}</span></td><td>${esc(s.name)}</td><td class="wrap">${nz(s.adresse)}</td><td>${nz(D.abtById[s.abteilung_id]?.kurzbezeichnung)}</td><td>${s.lat&&s.lon?'<span class="tag ok">ja</span>':'<span class="tag warn">fehlt</span>'}</td><td class="wrap">${sfs||'<span class="muted">–</span>'}</td></tr>`;
+  }).join("");
+  $("#content").innerHTML = `<div class="tablewrap"><table><thead><tr><th>Typ</th><th>Name</th><th class="wrap">Adresse</th><th>Abt.</th><th>Koordinaten</th><th class="wrap">Sonderfunktionen</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="count">${D.sto.length} Standorte · Zeile anklicken zum Bearbeiten</div>
+    <div class="actions"><button class="btn" onclick="editStandort(null)">Standort anlegen</button></div>`;
+}
+
+/* --- Karte --- */
+// Kartenmittelpunkt Osnabrück (Stadtzentrum, gerundet) – nur Startansicht, keine DB-Daten.
+const OS_CENTER = [52.2799, 8.0472];
+let map, markerLayer;
+function vKarte() {
+  const mit = D.sto.filter(s => s.lat && s.lon), ohne = D.sto.filter(s => !(s.lat && s.lon));
+  const legend = Object.entries(typLabel).filter(([k]) => D.sto.some(s => s.typ === k)).map(([k,l]) => `<span><i class="pin ${k}"></i>${l}</span>`).join("");
+  const geoRows = ohne.map(s => `<tr data-id="${s.id}"><td>${esc(s.name)}</td><td>${nz(s.adresse)}</td><td class="res muted">–</td><td><button class="btn small" onclick="geocode('${s.id}')">Suchen</button> <button class="btn small primary hidden" onclick="geoSave('${s.id}')">Übernehmen</button></td></tr>`).join("");
+  $("#content").innerHTML = `
+    <div id="map"></div>
+    <div class="maplegend">${legend}<span class="muted">${mit.length} von ${D.sto.length} Standorten mit Koordinaten · Marker anklicken für Details</span></div>
+    ${ohne.length ? `<h3 style="margin:18px 0 8px;font-size:14px">Koordinaten fehlen (${ohne.length})</h3>
+    <p class="muted" style="font-size:12px;margin:0 0 8px">Adresssuche über OpenStreetMap/Nominatim. Ergebnis erst prüfen, dann übernehmen – gespeichert wird lat/lon plus Quellenhinweis in der Anmerkung.</p>
+    <div class="tablewrap geo"><table><thead><tr><th>Standort</th><th>Adresse</th><th>Treffer</th><th></th></tr></thead><tbody>${geoRows}</tbody></table></div>
+    <div class="actions"><button class="btn" onclick="geocodeAll()">Alle fehlenden suchen</button></div>` : ""}`;
+  map = L.map("map", { scrollWheelZoom: true });
+  // Kartenhintergründe: basemap.de (BKG, amtlich, frei nutzbar) als Standard; CARTO als Ausweich;
+  // OpenStreetMap-Kacheln funktionieren nur gehostet, nicht aus einer lokalen Datei (Blockierung ohne Referer).
+  const layers = {
+    "basemap.de (amtlich)": L.tileLayer("https://sgx.geodatenzentrum.de/wmts_basemapde/tile/1.0.0/de_basemapde_web_raster_farbe/default/GLOBAL_WEBMERCATOR/{z}/{y}/{x}.png", { maxZoom: 18, attribution: '&copy; <a href="https://basemap.de">basemap.de</a> / BKG (dl-de/by-2-0)' }),
+    "basemap.de grau": L.tileLayer("https://sgx.geodatenzentrum.de/wmts_basemapde/tile/1.0.0/de_basemapde_web_raster_grau/default/GLOBAL_WEBMERCATOR/{z}/{y}/{x}.png", { maxZoom: 18, attribution: '&copy; <a href="https://basemap.de">basemap.de</a> / BKG (dl-de/by-2-0)' }),
+    "CARTO Voyager": L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", { subdomains: "abcd", maxZoom: 20, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>, &copy; <a href="https://carto.com/attributions">CARTO</a>' }),
+    "OpenStreetMap (nur gehostet)": L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' }),
+  };
+  layers["basemap.de (amtlich)"].addTo(map);
+  L.control.layers(layers, null, { position: "topright" }).addTo(map);
+  markerLayer = L.layerGroup().addTo(map);
+  mit.forEach(s => {
+    const m = L.marker([s.lat, s.lon], { icon: L.divIcon({ className: "", html: `<div class="pin ${s.typ}"></div>`, iconSize: [14,14], iconAnchor: [7,7] }) });
+    const fz = D.fz.filter(f => f.standort_id === s.id).length;
+    m.bindPopup(`<b>${esc(s.name)}</b><br>${esc(typLabel[s.typ]||s.typ)}<br>${esc(s.adresse||"")}<br><span style="color:var(--ink-3)">${fz} Fahrzeuge zugeordnet</span><br><a href="#" onclick="editStandort('${s.id}');return false">Bearbeiten</a>`);
+    markerLayer.addLayer(m);
+  });
+  if (mit.length) map.fitBounds(L.latLngBounds(mit.map(s => [s.lat, s.lon])).pad(0.15)); else map.setView(OS_CENTER, 12);
+}
+const geoHits = {};
+window.geocode = async id => {
+  const s = D.stoById[id], tr = document.querySelector(`tr[data-id="${id}"]`), res = tr.querySelector(".res");
+  res.textContent = "sucht …";
+  try {
+    const r = await fetch("https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=de&q=" + encodeURIComponent(s.adresse), { headers: { "Accept-Language": "de" } });
+    const j = await r.json();
+    if (!j.length) { res.textContent = "kein Treffer – Adresse prüfen"; return; }
+    geoHits[id] = { lat: +(+j[0].lat).toFixed(6), lon: +(+j[0].lon).toFixed(6), name: j[0].display_name };
+    res.innerHTML = `<span class="mono">${geoHits[id].lat}, ${geoHits[id].lon}</span><br><small class="muted">${esc(j[0].display_name)}</small>`;
+    tr.querySelector(".primary").classList.remove("hidden");
+    L.circleMarker([geoHits[id].lat, geoHits[id].lon], { radius: 7, color: "var(--warn)", dashArray: "3 3" }).bindTooltip(s.name + " (ungeprüft)").addTo(markerLayer);
+  } catch (e) { res.textContent = "Fehler: " + e.message; }
+};
+window.geocodeAll = async () => { for (const s of D.sto.filter(s => !(s.lat && s.lon))) { await geocode(s.id); await new Promise(r => setTimeout(r, 1100)); } }; // Nominatim: max. 1 Anfrage/s
+window.geoSave = async id => {
+  const h = geoHits[id], s = D.stoById[id]; if (!h) return;
+  const note = `Koordinaten: OpenStreetMap/Nominatim, Adresssuche ${new Date().toISOString().slice(0,10)}, im Dashboard geprüft und übernommen.`;
+  const { error } = await sb.from("standort").update({ lat: h.lat, lon: h.lon, anmerkung: s.anmerkung ? s.anmerkung + "\n" + note : note }).eq("id", id);
+  if (error) { toast("Fehler: " + error.message); return; }
+  toast("Koordinaten gespeichert"); await loadAll();
+};
+
+/* --- Wetter (Open-Meteo, ohne API-Key) --- */
+const wmo = { 0:"klar", 1:"überwiegend klar", 2:"teils bewölkt", 3:"bedeckt", 45:"Nebel", 48:"Reifnebel", 51:"leichter Sprühregen", 53:"Sprühregen", 55:"starker Sprühregen", 56:"gefrierender Sprühregen", 57:"starker gefrierender Sprühregen", 61:"leichter Regen", 63:"Regen", 65:"starker Regen", 66:"gefrierender Regen", 67:"starker gefrierender Regen", 71:"leichter Schneefall", 73:"Schneefall", 75:"starker Schneefall", 77:"Schneegriesel", 80:"leichte Regenschauer", 81:"Regenschauer", 82:"heftige Regenschauer", 85:"Schneeschauer", 86:"starke Schneeschauer", 95:"Gewitter", 96:"Gewitter mit Hagel", 99:"Gewitter mit starkem Hagel" };
+const dirs = ["N","NNO","NO","ONO","O","OSO","SO","SSO","S","SSW","SW","WSW","W","WNW","NW","NNW"];
+const wdir = d => dirs[Math.round(d / 22.5) % 16];
+async function vWetter() {
+  $("#content").innerHTML = `<p class="muted">lädt Wetterdaten …</p>`;
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${OS_CENTER[0]}&longitude=${OS_CENTER[1]}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,surface_pressure&hourly=temperature_2m,precipitation_probability,precipitation,weather_code,wind_speed_10m,wind_gusts_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,wind_gusts_10m_max,sunrise,sunset&timezone=Europe%2FBerlin&forecast_days=5&wind_speed_unit=kmh`;
+  let w;
+  try { w = await (await fetch(url)).json(); } catch (e) { $("#content").innerHTML = `<p class="msg">Wetterdaten nicht erreichbar: ${esc(e.message)}</p>`; return; }
+  const c = w.current, cu = w.current_units;
+  const nowIdx = w.hourly.time.findIndex(t => t >= c.time);
+  const hours = w.hourly.time.slice(nowIdx, nowIdx + 12).map((t, i) => { const k = nowIdx + i; return `<div><small>${t.slice(11,16)}</small><b>${Math.round(w.hourly.temperature_2m[k])}°</b><small>${esc(wmo[w.hourly.weather_code[k]]||"")}</small><small>${w.hourly.precipitation_probability[k]} % · ${w.hourly.precipitation[k]} mm</small><small>Böen ${Math.round(w.hourly.wind_gusts_10m[k])} km/h</small></div>`; }).join("");
+  const days = w.daily.time.map((t, i) => `<div><span>${new Date(t).toLocaleDateString("de-DE",{weekday:"short",day:"2-digit",month:"2-digit"})}</span><span>${esc(wmo[w.daily.weather_code[i]]||"")}</span><span>${Math.round(w.daily.temperature_2m_min[i])}° / ${Math.round(w.daily.temperature_2m_max[i])}°</span><span>${w.daily.precipitation_sum[i]} mm · Böen ${Math.round(w.daily.wind_gusts_10m_max[i])}</span></div>`).join("");
+  const gust = Math.round(c.wind_gusts_10m);
+  // Einsatzrelevante Schwellen: Bft 8 ≈ 62 km/h (Sturm), Bft 10 ≈ 89 km/h (schwerer Sturm) – Orientierung, keine amtliche Warnung
+  const warn = gust >= 89 ? "Böen im Bereich schwerer Sturm (Bft 10+)" : gust >= 62 ? "Böen im Bereich Sturm (Bft 8+)" : [95,96,99].includes(c.weather_code) ? "Gewitter gemeldet" : null;
+  $("#content").innerHTML = `
+    ${warn ? `<div class="warnbox">${warn}. Amtliche Warnlage beim DWD prüfen: <a href="https://www.dwd.de/DE/wetter/warnungen_gemeinden/warnWetter_node.html?ort=Osnabr%C3%BCck" target="_blank" rel="noopener">Warnungen Osnabrück</a></div>` : ""}
+    <div class="grid2">
+      <div class="panel">
+        <div class="now">
+          <div class="t">${Math.round(c.temperature_2m)}°</div>
+          <div><div class="desc">${esc(wmo[c.weather_code]||"–")}</div><div class="muted" style="font-size:12px">gefühlt ${Math.round(c.apparent_temperature)}°, Stand ${c.time.slice(11,16)} Uhr</div></div>
+          <dl style="grid-column:1/-1;margin-top:10px">
+            <dt>Wind</dt><dd>${Math.round(c.wind_speed_10m)} km/h aus ${wdir(c.wind_direction_10m)}, Böen ${gust} km/h</dd>
+            <dt>Niederschlag</dt><dd>${c.precipitation} mm (letzte Stunde)</dd>
+            <dt>Luftfeuchte</dt><dd>${c.relative_humidity_2m} %</dd>
+            <dt>Luftdruck</dt><dd>${Math.round(c.surface_pressure)} hPa</dd>
+            <dt>Sonne</dt><dd>${w.daily.sunrise[0].slice(11,16)} – ${w.daily.sunset[0].slice(11,16)} Uhr</dd>
+          </dl>
+        </div>
+      </div>
+      <div class="panel"><h3>Nächste 5 Tage</h3><div class="days">${days}</div></div>
+    </div>
+    <div class="hours">${hours}</div>
+    <div class="legend">Quelle: Open-Meteo (Modelldaten für ${OS_CENTER[0]}, ${OS_CENTER[1]}), keine amtliche Warnung. Für Einsatzentscheidungen DWD-Warnlage maßgeblich. <a href="https://www.dwd.de/DE/wetter/warnungen_gemeinden/warnWetter_node.html?ort=Osnabr%C3%BCck" target="_blank" rel="noopener">DWD Warnungen Osnabrück</a></div>`;
+}
+
+/* --- Fahrzeuge --- */
+const fzFilter = { s:"", abt:"", kat:"", sto:"", ph:"alle", status:"" };
+function vFahrzeuge() {
+  const opts = (arr, cur, lab) => `<option value="">${lab}</option>` + arr.map(([v,l]) => `<option value="${esc(v)}" ${v===cur?"selected":""}>${esc(l)}</option>`).join("");
+  const kats = D.kat.map(k => [k.id, `${k.zeile} ${k.bezeichnung}`]);
+  const stos = D.sto.map(s => [s.id, s.name]);
+  const abts = D.abt.map(a => [a.id, a.kurzbezeichnung + " " + a.name]);
+  let list = D.fz.filter(f =>
+    (!fzFilter.abt || f.abteilung_id === fzFilter.abt) &&
+    (!fzFilter.kat || f.kategorie_id === fzFilter.kat) &&
+    (!fzFilter.sto || f.standort_id === fzFilter.sto) &&
+    (!fzFilter.status || f.status === fzFilter.status) &&
+    (fzFilter.ph === "alle" || (fzFilter.ph === "ja") === !!f.platzhalter) &&
+    (!fzFilter.s || [f.bezeichnung, f.kennzeichen, f.funkrufname, f.hersteller, f.bemerkung].join(" ").toLowerCase().includes(fzFilter.s.toLowerCase()))
+  );
+  const rows = list.map(f => `<tr class="click" onclick="editFahrzeug('${f.id}')">
+      <td>${esc(f.bezeichnung)} ${f.platzhalter?'<span class="tag ph">Platzhalter</span>':''}</td>
+      <td class="mono">${nz(f.funkrufname)}</td><td class="mono">${nz(f.kennzeichen)}</td>
+      <td>${nz(f.baujahr)}</td><td>${nz(f.standort?.name)}</td>
+      <td>${nz(f.abteilung?.kurzbezeichnung)}</td><td class="wrap">${f.fahrzeugkategorie ? esc(f.fahrzeugkategorie.zeile + " " + f.fahrzeugkategorie.bezeichnung) : nz(null)}</td>
+      <td><span class="tag ${f.status==='vorhanden'?'ok':f.status==='auszusondern'?'warn':''}">${esc(f.status)}</span></td></tr>`).join("");
+  $("#content").innerHTML = `
+    <div class="tools">
+      <div class="grow"><label>Suche</label><input id="fS" value="${esc(fzFilter.s)}" placeholder="Bezeichnung, Kennzeichen, Funkrufname …"></div>
+      <div><label>Abteilung</label><select id="fAbt">${opts(abts, fzFilter.abt, "alle")}</select></div>
+      <div><label>Kategorie (Konzept)</label><select id="fKat">${opts(kats, fzFilter.kat, "alle")}</select></div>
+      <div><label>Standort</label><select id="fSto">${opts(stos, fzFilter.sto, "alle")}</select></div>
+      <div><label>Status</label><select id="fStatus">${opts([["vorhanden","vorhanden"],["geplant","geplant"],["auszusondern","auszusondern"]], fzFilter.status, "alle")}</select></div>
+      <div><label>Datenstand</label><select id="fPh">${opts([["nein","mit Einzeldaten"],["ja","Platzhalter"]], fzFilter.ph, "alle")}</select></div>
+    </div>
+    <div class="tablewrap"><table><thead><tr><th>Bezeichnung</th><th>Funkrufname</th><th>Kennzeichen</th><th>Bj.</th><th>Standort</th><th>Abt.</th><th class="wrap">Kategorie</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="count">${list.length} von ${D.fz.length} Fahrzeugen · Zeile anklicken zum Bearbeiten</div>
+    <div class="actions"><button class="btn" onclick="editFahrzeug(null)">Fahrzeug anlegen</button></div>`;
+  $("#fS").oninput = e => { fzFilter.s = e.target.value; refreshTable(); };
+  [["fAbt","abt"],["fKat","kat"],["fSto","sto"],["fStatus","status"],["fPh","ph"]].forEach(([id,k]) => $("#"+id).onchange = e => { fzFilter[k] = e.target.value || (k==="ph"?"alle":""); vFahrzeuge(); });
+  function refreshTable(){ const pos=$("#fS").selectionStart; vFahrzeuge(); $("#fS").focus(); $("#fS").setSelectionRange(pos,pos); }
+}
+
+/* --- Fahrzeugkonzept (Soll/Ist) --- */
+function vKonzept() {
+  const istByKat = {}; D.fz.forEach(f => { istByKat[f.kategorie_id] ??= {n:0,ph:0}; istByKat[f.kategorie_id].n++; if (f.platzhalter) istByKat[f.kategorie_id].ph++; });
+  const bereich = { feuerwehr:"Tab. 1 Feuerwehr", erw_rettungsdienst:"Tab. 2 erw. Rettungsdienst", kats_kommune:"Tab. 3 KatS Kommune", bund:"Tab. 4 Bund", land:"Tab. 5 Land" };
+  const rows = D.kat.sort((a,b)=>a.tabelle-b.tabelle||a.zeile.localeCompare(b.zeile)).map(k => {
+    const ist = istByKat[k.id] || {n:0,ph:0};
+    const diff = k.anzahl_soll != null ? ist.n - k.anzahl_soll : null;
+    return `<tr><td>${k.tabelle}</td><td class="mono">${esc(k.zeile)}</td><td class="wrap">${esc(k.bezeichnung)}</td><td>${nz(k.anzahl_2012)}</td><td>${nz(k.anzahl_ist)}</td><td>${nz(k.anzahl_soll)}</td>
+      <td>${ist.n} <span class="muted">(${ist.ph} PH)</span></td>
+      <td>${diff===null?nz(null):diff===0?'<span class="tag ok">passt</span>':`<span class="tag warn">${diff>0?"+":""}${diff}</span>`}</td>
+      <td>${nz(D.abtById[k.abteilung_id]?.kurzbezeichnung)}</td></tr>`;
+  }).join("");
+  $("#content").innerHTML = `<div class="tablewrap"><table><thead><tr><th>Tab.</th><th>Zeile</th><th class="wrap">Kategorie</th><th>2012</th><th>Ist (Konzept)</th><th>Soll</th><th>Bestand DB</th><th>DB vs. Soll</th><th>Abt.</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="count">Konzeptzahlen aus der Fortschreibung des Fahrzeugkonzepts (Tabelle fahrzeugkategorie); „Bestand DB“ zählt Zeilen in fahrzeug, PH = Platzhalter. Abweichungen sind Prüfhinweise, kein Fehler.</div>`;
+}
+
+/* --- Projekte & Aufgaben --- */
+function vProjekte() {
+  const pr = D.pro.map(p => `<tr class="click" onclick="editProjekt('${p.id}')"><td class="mono">${nz(p.kuerzel)}</td><td class="wrap">${esc(p.titel)}</td><td><span class="tag">${esc(p.status)}</span></td><td>${nz(p.prioritaet)}</td><td>${nz(p.ziel_datum)}</td><td>${nz(D.abtById[p.abteilung_id]?.kurzbezeichnung)}</td></tr>`).join("");
+  const today = new Date().toISOString().slice(0,10);
+  const au = D.auf.map(a => `<tr class="click" onclick="editAufgabe('${a.id}')"><td class="wrap">${esc(a.titel)}</td><td class="wrap">${nz(a.projekt?.titel)}</td><td><span class="tag ${a.status==='erledigt'?'ok':''}">${esc(a.status)}</span></td><td>${nz(a.prioritaet)}</td><td class="${a.faellig_am&&a.faellig_am<today&&!['erledigt','verworfen'].includes(a.status)?'mono':''}" style="${a.faellig_am&&a.faellig_am<today&&!['erledigt','verworfen'].includes(a.status)?'color:var(--signal)':''}">${nz(a.faellig_am)}</td><td>${nz(a.wiedervorlage_am)}</td></tr>`).join("");
+  $("#content").innerHTML = `
+    <div class="tablewrap"><table><thead><tr><th>Kürzel</th><th class="wrap">Projekt</th><th>Status</th><th>Prio</th><th>Zieldatum</th><th>Abt.</th></tr></thead><tbody>${pr || `<tr><td colspan="6" class="muted">Noch keine Projekte. Lege das erste unten an.</td></tr>`}</tbody></table></div>
+    <div class="actions"><button class="btn" onclick="editProjekt(null)">Projekt anlegen</button></div>
+    <h3 style="margin:22px 0 8px;font-size:14px">Aufgaben (${D.auf.length})</h3>
+    <div class="tablewrap"><table><thead><tr><th class="wrap">Aufgabe</th><th class="wrap">Projekt</th><th>Status</th><th>Prio</th><th>Fällig</th><th>Wiedervorlage</th></tr></thead><tbody>${au || `<tr><td colspan="6" class="muted">Noch keine Aufgaben.</td></tr>`}</tbody></table></div>
+    <div class="actions"><button class="btn" onclick="editAufgabe(null)">Aufgabe anlegen</button></div>`;
+}
+
+/* ---------------- Formular-Drawer ---------------- */
+function field(f, v) {
+  const val = v ?? "";
+  if (f.type === "select") return `<label>${f.label}</label><select name="${f.name}">${f.nullable!==false?'<option value="">–</option>':''}${f.options.map(([ov,ol]) => `<option value="${esc(ov)}" ${String(ov)===String(val)?"selected":""}>${esc(ol)}</option>`).join("")}</select>`;
+  if (f.type === "textarea") return `<label>${f.label}</label><textarea name="${f.name}">${esc(val)}</textarea>`;
+  if (f.type === "checkbox") return `<label style="display:flex;align-items:center;gap:8px;margin-top:16px"><input type="checkbox" name="${f.name}" style="width:auto" ${val?"checked":""}> ${f.label}</label>`;
+  return `<label>${f.label}${f.required?" *":""}</label><input name="${f.name}" type="${f.type||"text"}" value="${esc(val)}" ${f.required?"required":""} ${f.step?`step="${f.step}"`:""}>`;
+}
+function openForm({ title, sub, fields, row, table, onSaved, hint }) {
+  const half = new Set(fields.filter(f=>f.half).map(f=>f.name));
+  let html = `<div class="sheet"><h3>${title}</h3><div class="sub">${sub||""}</div>${hint?`<p class="muted" style="font-size:12px;margin:0 0 6px">${hint}</p>`:""}<form id="frm">`;
+  let i = 0;
+  while (i < fields.length) {
+    if (half.has(fields[i].name) && fields[i+1] && half.has(fields[i+1].name)) { html += `<div class="two"><div>${field(fields[i], row?.[fields[i].name])}</div><div>${field(fields[i+1], row?.[fields[i+1].name])}</div></div>`; i += 2; }
+    else { html += field(fields[i], row?.[fields[i].name]); i++; }
+  }
+  html += `<div class="actions"><button class="btn primary" type="submit">${row?"Änderungen speichern":"Anlegen"}</button><button class="btn" type="button" id="frmCancel">Abbrechen</button><span class="msg" id="frmMsg" style="margin:0"></span></div></form></div>`;
+  const dr = $("#drawer"); dr.innerHTML = html; dr.classList.remove("hidden");
+  dr.onclick = e => { if (e.target === dr) dr.classList.add("hidden"); };
+  $("#frmCancel").onclick = () => dr.classList.add("hidden");
+  $("#frm").onsubmit = async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target), payload = {};
+    fields.forEach(f => {
+      if (f.readonly) return;
+      if (f.type === "checkbox") { payload[f.name] = fd.get(f.name) === "on"; return; }
+      let v = fd.get(f.name); if (v === "" ) v = null;
+      if (v !== null && (f.type === "number")) v = Number(v);
+      payload[f.name] = v;
+    });
+    $("#frmMsg").textContent = "speichert …";
+    const r = row ? await sb.from(table).update(payload).eq("id", row.id).select() : await sb.from(table).insert(payload).select();
+    if (r.error) { $("#frmMsg").textContent = r.error.message; return; }
+    dr.classList.add("hidden"); toast(row ? "Gespeichert" : "Angelegt"); await loadAll(); onSaved?.();
+  };
+}
+const selAbt = () => D.abt.map(a => [a.id, a.kurzbezeichnung + " " + a.name]);
+const selUabt = () => D.uabt.map(u => [u.id, (D.abtById[u.abteilung_id]?.kurzbezeichnung||"") + " · " + u.name]);
+const selSto = () => D.sto.map(s => [s.id, s.name]);
+const selKon = () => D.kon.map(k => [k.id, personName(k)]);
+const selKat = () => D.kat.map(k => [k.id, `${k.zeile} ${k.bezeichnung}`]);
+const selDin = () => D.dinT.map(d => [d.id, d.kurzbezeichnung]);
+const selPro = () => D.pro.map(p => [p.id, p.titel]);
+
+window.editFahrzeug = id => {
+  const row = id ? D.fz.find(f => f.id === id) : null;
+  openForm({ table:"fahrzeug", row, title: row ? row.bezeichnung : "Neues Fahrzeug", sub: row ? row.id : "",
+    hint: row?.platzhalter ? "Platzhalter aus dem Fahrzeugkonzept. Sobald Kennzeichen/Baujahr/Standort eingetragen sind, Haken „Platzhalter“ entfernen." : "",
+    fields: [
+      { name:"bezeichnung", label:"Bezeichnung", required:true },
+      { name:"kategorie_id", label:"Kategorie (Fahrzeugkonzept)", type:"select", options:selKat(), nullable:false },
+      { name:"art", label:"Art", type:"select", options:[["fahrzeug","Fahrzeug"],["anhaenger","Anhänger"],["abrollbehaelter","Abrollbehälter"]], nullable:false, half:true },
+      { name:"status", label:"Status", type:"select", options:[["vorhanden","vorhanden"],["geplant","geplant"],["auszusondern","auszusondern"]], nullable:false, half:true },
+      { name:"funkrufname", label:"Funkrufname", half:true },
+      { name:"kennzeichen", label:"Kennzeichen", half:true },
+      { name:"hersteller", label:"Hersteller / Aufbau", half:true },
+      { name:"baujahr", label:"Baujahr", type:"number", half:true },
+      { name:"inbetriebnahme", label:"Inbetriebnahme", type:"date", half:true },
+      { name:"nutzungsdauer_soll_jahre", label:"Soll-Nutzungsdauer (Jahre)", type:"number", half:true },
+      { name:"ausmusterung_geplant", label:"Ausmusterung geplant (Jahr)", type:"number", half:true },
+      { name:"din_fahrzeugtyp_id", label:"DIN-Fahrzeugtyp", type:"select", options:selDin(), half:true },
+      { name:"standort_id", label:"Standort", type:"select", options:selSto() },
+      { name:"abteilung_id", label:"Abteilung", type:"select", options:selAbt(), half:true },
+      { name:"unterabteilung_id", label:"Unterabteilung", type:"select", options:selUabt(), half:true },
+      { name:"traeger", label:"Träger" },
+      { name:"quelle", label:"Quelle" },
+      { name:"bemerkung", label:"Bemerkung", type:"textarea" },
+      { name:"platzhalter", label:"Platzhalter (noch ohne Einzeldaten)", type:"checkbox" },
+    ]});
+};
+window.editStandort = id => {
+  const row = id ? D.sto.find(s => s.id === id) : null;
+  openForm({ table:"standort", row, title: row ? row.name : "Neuer Standort", sub: row ? row.id : "",
+    fields: [
+      { name:"name", label:"Name", required:true },
+      { name:"typ", label:"Typ", type:"select", options:Object.entries(typLabel), nullable:false, half:true },
+      { name:"kurzbezeichnung", label:"Kurzbezeichnung", half:true },
+      { name:"adresse", label:"Adresse" },
+      { name:"stadtteil", label:"Stadtteil", half:true },
+      { name:"traeger", label:"Träger", half:true },
+      { name:"abteilung_id", label:"Abteilung", type:"select", options:selAbt() },
+      { name:"lat", label:"Breite (lat)", type:"number", step:"any", half:true },
+      { name:"lon", label:"Länge (lon)", type:"number", step:"any", half:true },
+      { name:"quelle", label:"Quelle" },
+      { name:"anmerkung", label:"Anmerkung", type:"textarea" },
+    ]});
+};
+window.editKontakt = id => {
+  const row = id ? D.kon.find(k => k.id === id) : null;
+  openForm({ table:"kontakt", row, title: row ? personName(row) : "Neuer Kontakt", sub: row ? row.id : "",
+    hint: "Nur Leitungspersonen / dienstliche Ansprechpartner (Name, Funktion). Keine Personaldaten von Einsatzkräften.",
+    fields: [ { name:"vorname", label:"Vorname", half:true }, { name:"nachname", label:"Nachname", required:true, half:true }, { name:"funktionsbezeichnung", label:"Funktionsbezeichnung" },
+      { name:"telefon", label:"Telefon (dienstlich)", type:"tel", half:true }, { name:"email", label:"E-Mail (dienstlich)", type:"email", half:true },
+      { name:"strasse", label:"Straße / Hausnummer" }, { name:"plz", label:"PLZ", half:true }, { name:"ort", label:"Ort", half:true } ]});
+};
+window.editProjekt = id => {
+  const row = id ? D.pro.find(p => p.id === id) : null;
+  openForm({ table:"projekt", row, title: row ? row.titel : "Neues Projekt", sub: row ? row.id : "",
+    fields: [
+      { name:"kuerzel", label:"Kürzel", half:true }, { name:"prioritaet", label:"Priorität (1 hoch – 4 niedrig)", type:"number", half:true },
+      { name:"titel", label:"Titel", required:true },
+      { name:"status", label:"Status", type:"select", options:["idee","geplant","laufend","pausiert","abgeschlossen","verworfen"].map(s=>[s,s]), nullable:false },
+      { name:"beschreibung", label:"Beschreibung", type:"textarea" }, { name:"ziel", label:"Ziel", type:"textarea" },
+      { name:"start_datum", label:"Start", type:"date", half:true }, { name:"ziel_datum", label:"Zieldatum", type:"date", half:true },
+      { name:"abteilung_id", label:"Abteilung", type:"select", options:selAbt(), half:true }, { name:"unterabteilung_id", label:"Unterabteilung", type:"select", options:selUabt(), half:true },
+      { name:"verantwortlich_kontakt_id", label:"Verantwortlich", type:"select", options:selKon() },
+      { name:"quelle", label:"Quelle" }, { name:"anmerkung", label:"Anmerkung", type:"textarea" },
+    ]});
+};
+window.editAufgabe = id => {
+  const row = id ? D.auf.find(a => a.id === id) : null;
+  openForm({ table:"aufgabe", row, title: row ? row.titel : "Neue Aufgabe", sub: row ? row.id : "",
+    fields: [
+      { name:"titel", label:"Titel", required:true },
+      { name:"projekt_id", label:"Projekt", type:"select", options:selPro() },
+      { name:"status", label:"Status", type:"select", options:["offen","in_arbeit","wartet","erledigt","verworfen"].map(s=>[s,s]), nullable:false, half:true },
+      { name:"prioritaet", label:"Priorität (1–4)", type:"number", half:true },
+      { name:"faellig_am", label:"Fällig am", type:"date", half:true }, { name:"wiedervorlage_am", label:"Wiedervorlage", type:"date", half:true },
+      { name:"erledigt_am", label:"Erledigt am", type:"date", half:true }, { name:"aufwand_geschaetzt_h", label:"Aufwand (h)", type:"number", step:"0.25", half:true },
+      { name:"abteilung_id", label:"Abteilung", type:"select", options:selAbt() },
+      { name:"verantwortlich_kontakt_id", label:"Verantwortlich", type:"select", options:selKon() },
+      { name:"beschreibung", label:"Beschreibung", type:"textarea" }, { name:"anmerkung", label:"Anmerkung", type:"textarea" },
+    ]});
+};
+</script>
+</body>
+</html>
